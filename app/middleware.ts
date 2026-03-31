@@ -4,6 +4,9 @@ import { updateSession } from "@/lib/supabase/middleware";
 /** Routes that don't require authentication */
 const PUBLIC_ROUTES = ["/login", "/register", "/api/scan"];
 
+/** Routes only accessible to admin / teacher */
+const ADMIN_ROUTES = ["/dashboard", "/students", "/tappers", "/cards", "/analytics", "/settings","/events"];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -17,7 +20,7 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  const { user, supabaseResponse } = await updateSession(request);
+  const { user, supabaseResponse, supabase } = await updateSession(request);
 
   // Redirect unauthenticated users to login
   if (!user) {
@@ -27,10 +30,27 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from root to dashboard
+  // Fetch the user's role from their profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  const role = profile?.role ?? "student";
+  const isStudent = role === "student";
+
+  // Redirect root based on role
   if (pathname === "/") {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = isStudent ? "/my-attendance" : "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  // Block students from admin/teacher-only routes
+  if (isStudent && ADMIN_ROUTES.some((route) => pathname.startsWith(route))) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/my-attendance";
     return NextResponse.redirect(url);
   }
 
