@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Wifi, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -20,11 +20,13 @@ type Scan = {
 type Props = {
   initial: Scan[];
   profiles: Pick<Profile, "id" | "full_name" | "email" | "student_id" | "role">[];
+  pairedCardUids: string[];
 };
 
-export function UnregisteredScans({ initial, profiles }: Props) {
+export function UnregisteredScans({ initial, profiles, pairedCardUids }: Props) {
   const [scans, setScans] = useState<Scan[]>(initial);
   const [dialogCardUid, setDialogCardUid] = useState<string | null>(null);
+  const pairedSet = useRef(new Set(pairedCardUids));
 
   useEffect(() => {
     const supabase = createClient();
@@ -36,9 +38,9 @@ export function UnregisteredScans({ initial, profiles }: Props) {
         { event: "INSERT", schema: "public", table: "attendance_logs" },
         (payload) => {
           const row = payload.new as Scan & { profile_id: string | null };
-          if (row.profile_id !== null) return; // already linked — ignore
+          if (row.profile_id !== null) return; // resolved at scan time — ignore
+          if (pairedSet.current.has(row.card_uid)) return; // already paired — ignore
           setScans((prev) => {
-            // deduplicate by id
             if (prev.some((s) => s.id === row.id)) return prev;
             return [row, ...prev].slice(0, 20);
           });
@@ -52,6 +54,7 @@ export function UnregisteredScans({ initial, profiles }: Props) {
   }, []);
 
   function handlePaired(cardUid: string) {
+    pairedSet.current.add(cardUid);
     setScans((prev) => prev.filter((s) => s.card_uid !== cardUid));
   }
 

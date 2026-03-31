@@ -521,7 +521,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```bash
 cd firmware
 pip install amqtt
-python broker.py
+python3 broker.py
 ```
 The broker starts on `0.0.0.0:1883`. The internal listener client connects to `127.0.0.1:1883` after a 2-second delay and subscribes to all topics (`#`).
 
