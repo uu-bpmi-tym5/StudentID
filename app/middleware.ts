@@ -2,10 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 /** Routes that don't require authentication */
-const PUBLIC_ROUTES = ["/login", "/register", "/api/scan", "/api/tappers"];
+const PUBLIC_ROUTES = ["/login", "/register", "/reset-password", "/update-password", "/api/scan", "/api/tappers"];
 
 /** Routes only accessible to admin / teacher */
-const ADMIN_ROUTES = ["/dashboard", "/students", "/tappers", "/cards", "/analytics", "/settings","/events"];
+const ADMIN_ROUTES = ["/dashboard", "/students", "/tappers", "/cards", "/analytics", "/settings"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

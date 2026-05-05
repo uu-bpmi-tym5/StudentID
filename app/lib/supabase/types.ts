@@ -128,6 +128,7 @@ export type Database = {
       }
       events: {
         Row: {
+          allow_self_enrollment: boolean
           created_at: string
           created_by: string
           description: string | null
@@ -140,6 +141,7 @@ export type Database = {
           type: Database["public"]["Enums"]["event_type"]
         }
         Insert: {
+          allow_self_enrollment?: boolean
           created_at?: string
           created_by: string
           description?: string | null
@@ -152,6 +154,7 @@ export type Database = {
           type?: Database["public"]["Enums"]["event_type"]
         }
         Update: {
+          allow_self_enrollment?: boolean
           created_at?: string
           created_by?: string
           description?: string | null
@@ -273,6 +276,7 @@ export type Database = {
     Views: {
       event_attendance_summary: {
         Row: {
+          allow_self_enrollment: boolean | null
           attendance_pct: number | null
           attended_count: number | null
           ends_at: string | null

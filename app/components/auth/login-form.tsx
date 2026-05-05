@@ -118,6 +118,15 @@ export function LoginForm() {
               "Sign in"
             )}
           </Button>
+
+          <div className="text-center">
+            <Link
+              href="/reset-password"
+              className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+            >
+              Forgot your password?
+            </Link>
+          </div>
         </form>
       </div>
 

@@ -43,7 +43,7 @@ const mainNav = [
     title: "Events",
     href: "/events",
     icon: CalendarDays,
-    roles: ["admin", "teacher"] as UserRole[],
+    roles: ["admin", "teacher", "student"] as UserRole[],
   },
   {
     title: "My Attendance",
