@@ -72,7 +72,11 @@ export function EditEventForm({ event, tappers }: Props) {
       const res = await fetch(`/api/events/${event.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          ...data,
+          starts_at: new Date(data.starts_at).toISOString(),
+          ends_at: new Date(data.ends_at).toISOString(),
+        }),
       });
 
       if (!res.ok) {

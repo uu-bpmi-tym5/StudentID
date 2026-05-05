@@ -62,57 +62,83 @@ async def call_scan_api(tapper_id: str, card_uid: str, timestamp: int) -> tuple[
     return "p1/red", "p1"
 
 
+TIMEOUT_SECONDS = 30
+RECONNECT_AFTER_TIMEOUTS = 10  # reconnect after ~5 minutes of silence
+
+
 async def run_listener():
     await asyncio.sleep(2)
-    client = MQTTClient(client_id="mac-listener")
-    await client.connect("mqtt://127.0.0.1:1883")
-    print("Listener connected")
-    await client.subscribe([("#", 0)])
-    print("Listening on all topics")
-    print("-" * 50)
-
     while True:
+        client = MQTTClient(client_id="mac-listener")
         try:
-            message = await asyncio.wait_for(client.deliver_message(), timeout=30)
-            topic = message.publish_packet.variable_header.topic_name
-            payload_raw = message.publish_packet.payload.data.decode("utf-8")
-
-            try:
-                data = json.loads(payload_raw)
-            except Exception:
-                data = payload_raw
-
-            print(f"\nTopic: {topic}")
-
-            if "event/tag" in topic:
-                tapper_id = topic.split("/")[1]
-                card_uid = data.get("id", "") if isinstance(data, dict) else ""
-                timestamp = data.get("timestamp", int(time.time())) if isinstance(data, dict) else int(time.time())
-                print(f"NFC Tag ID: {card_uid}")
-                print(f"Timestamp: {timestamp}")
-                visual, acoustic = await call_scan_api(tapper_id, card_uid, timestamp)
-                await call_heartbeat_api(tapper_id)
-                await send_feedback(tapper_id, visual, acoustic)
-            elif "event/boot" in topic:
-                tapper_id = topic.split("/")[1]
-                print(f"Device boot event from {tapper_id}")
-                await call_heartbeat_api(tapper_id)
-            elif "event/tamper" in topic:
-                print(f"Tamper state: {data.get('state', '?')}")
-            elif "control/response" in topic:
-                print(f"Control response: {data.get('result', '?')}")
-            else:
-                print(f"Data: {data}")
-
+            await client.connect("mqtt://127.0.0.1:1883")
+            print("Listener connected")
+            await client.subscribe([("#", 0)])
+            print("Listening on all topics")
             print("-" * 50)
+            consecutive_timeouts = 0
 
-        except asyncio.TimeoutError:
-            print("Waiting for message...")
+            while True:
+                try:
+                    message = await asyncio.wait_for(client.deliver_message(), timeout=TIMEOUT_SECONDS)
+                    consecutive_timeouts = 0
+                    topic = message.publish_packet.variable_header.topic_name
+                    payload_raw = message.publish_packet.payload.data.decode("utf-8")
+
+                    try:
+                        data = json.loads(payload_raw)
+                    except Exception:
+                        data = payload_raw
+
+                    print(f"\nTopic: {topic}")
+
+                    if "event/tag" in topic:
+                        tapper_id = topic.split("/")[1]
+                        card_uid = data.get("id", "") if isinstance(data, dict) else ""
+                        timestamp = data.get("timestamp", int(time.time())) if isinstance(data, dict) else int(time.time())
+                        print(f"NFC Tag ID: {card_uid}")
+                        print(f"Timestamp: {timestamp}")
+                        visual, acoustic = await call_scan_api(tapper_id, card_uid, timestamp)
+                        await call_heartbeat_api(tapper_id)
+                        await send_feedback(tapper_id, visual, acoustic)
+                    elif "event/boot" in topic:
+                        tapper_id = topic.split("/")[1]
+                        print(f"Device boot event from {tapper_id}")
+                        await call_heartbeat_api(tapper_id)
+                    elif "event/tamper" in topic:
+                        print(f"Tamper state: {data.get('state', '?')}")
+                    elif "control/request" in topic or "control/response" in topic:
+                        pass  # own feedback echo — ignore
+                    else:
+                        print(f"Data: {data}")
+
+                    print("-" * 50)
+
+                except asyncio.TimeoutError:
+                    consecutive_timeouts += 1
+                    print(f"Waiting for message... ({consecutive_timeouts}/{RECONNECT_AFTER_TIMEOUTS})")
+                    if consecutive_timeouts >= RECONNECT_AFTER_TIMEOUTS:
+                        print("Listener stale — reconnecting")
+                        break
+
+        except Exception as e:
+            print(f"Listener error: {e}")
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+        await asyncio.sleep(3)
 
 
-async def send_feedback(tapper_id: str, visual: str, acoustic: str):
-    client = MQTTClient(client_id="mac-feedback")
-    await client.connect("mqtt://127.0.0.1:1883")
+_feedback_client: MQTTClient | None = None
+
+
+async def send_feedback(tapper_id: str, visual: str, acoustic: str) -> None:
+    global _feedback_client
+    if _feedback_client is None:
+        _feedback_client = MQTTClient(client_id="mac-feedback")
+        await _feedback_client.connect("mqtt://127.0.0.1:1883")
     topic = f"tapper/{tapper_id}/control/request"
     payload = json.dumps({
         "timestamp": int(time.time()),
@@ -120,9 +146,17 @@ async def send_feedback(tapper_id: str, visual: str, acoustic: str):
         "visual": {"pattern": visual},
         "acoustic": {"pattern": acoustic},
     })
-    await client.publish(topic, payload.encode(), qos=0)
-    await client.disconnect()
-    print(f"Feedback sent: visual={visual} acoustic={acoustic}")
+    try:
+        await _feedback_client.publish(topic, payload.encode(), qos=0)
+        print(f"Feedback sent: visual={visual} acoustic={acoustic}")
+    except Exception as e:
+        print(f"Feedback error: {e} — reconnecting next call")
+        try:
+            await _feedback_client.disconnect()
+        except Exception:
+            pass
+        _feedback_client = None
+        raise
 
 
 async def main():

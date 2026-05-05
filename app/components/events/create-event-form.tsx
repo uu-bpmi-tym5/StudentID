@@ -53,7 +53,11 @@ export function CreateEventForm({ tappers }: Props) {
       const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          ...data,
+          starts_at: new Date(data.starts_at).toISOString(),
+          ends_at: new Date(data.ends_at).toISOString(),
+        }),
       });
 
       if (!res.ok) {

@@ -71,7 +71,7 @@ export async function PATCH(
   // Check event exists and ownership
   const { data: event } = await supabase
     .from("events")
-    .select("created_by")
+    .select("created_by, tapper_id, starts_at, ends_at")
     .eq("id", id)
     .single();
 
@@ -96,6 +96,29 @@ export async function PATCH(
       { error: "Invalid payload", details: parsed.error.flatten() },
       { status: 400 }
     );
+  }
+
+  // Check tapper overlap, merging incoming values with existing ones, excluding self
+  const effectiveTapperId = parsed.data.tapper_id ?? event.tapper_id;
+  const effectiveStartsAt = parsed.data.starts_at ?? event.starts_at;
+  const effectiveEndsAt = parsed.data.ends_at ?? event.ends_at;
+
+  if (effectiveStartsAt && effectiveEndsAt) {
+    const { data: conflicts } = await supabase
+      .from("events")
+      .select("id")
+      .eq("tapper_id", effectiveTapperId)
+      .lt("starts_at", effectiveEndsAt)
+      .gt("ends_at", effectiveStartsAt)
+      .neq("id", id)
+      .limit(1);
+
+    if (conflicts && conflicts.length > 0) {
+      return NextResponse.json(
+        { error: "This tapper already has an event during that time window" },
+        { status: 409 }
+      );
+    }
   }
 
   const { data: updated, error } = await supabase

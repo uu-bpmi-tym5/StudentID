@@ -20,7 +20,9 @@ comment on column public.events.allow_self_enrollment is
 -- Include allow_self_enrollment so the student browse page can
 -- filter to only enrollable events without an extra join.
 
-create or replace view public.event_attendance_summary as
+drop view if exists public.event_attendance_summary;
+
+create view public.event_attendance_summary as
 select
   e.id                      as event_id,
   e.title,

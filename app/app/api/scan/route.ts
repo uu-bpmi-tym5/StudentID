@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
     .single();
 
   // 4. Find active event for this tapper
-  const { data: activeEvent } = await supabase
-    .from("events")
+    const { data: activeEvent, error: eventError } = await supabase
+        .from("events")
     .select("id")
     .eq("tapper_id", tapper_id)
     .eq("is_active", true)

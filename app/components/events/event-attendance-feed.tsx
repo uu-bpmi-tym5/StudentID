@@ -23,7 +23,7 @@ interface Props {
 
 export function EventAttendanceFeed({ eventId, initial }: Props) {
   const [logs, setLogs] = useState<LogWithProfile[]>(initial);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Realtime subscription
   useEffect(() => {
@@ -38,8 +38,16 @@ export function EventAttendanceFeed({ eventId, initial }: Props) {
           table: "attendance_logs",
           filter: `event_id=eq.${eventId}`,
         },
-        (payload) => {
+        async (payload) => {
           const newLog = payload.new as LogWithProfile;
+          if (newLog.profile_id) {
+            const { data: profile } = await supabase
+              .from("profiles")
+              .select("full_name, student_id")
+              .eq("id", newLog.profile_id)
+              .single();
+            newLog.profiles = profile ?? null;
+          }
           setLogs((prev) => [newLog, ...prev]);
         }
       )
@@ -50,9 +58,9 @@ export function EventAttendanceFeed({ eventId, initial }: Props) {
     };
   }, [eventId]);
 
-  // Auto-scroll to newest
+  // Scroll container to top so the newest prepended item stays visible
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [logs]);
 
   function dotColor(log: LogWithProfile) {
@@ -70,7 +78,7 @@ export function EventAttendanceFeed({ eventId, initial }: Props) {
         </Badge>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="max-h-72 overflow-y-auto px-4 pb-4">
+        <div ref={scrollRef} className="max-h-72 overflow-y-auto px-4 pb-4">
           {logs.length === 0 ? (
             <p className="py-8 text-center text-xs text-muted-foreground">
               No scans yet — waiting for NFC taps…
@@ -96,7 +104,6 @@ export function EventAttendanceFeed({ eventId, initial }: Props) {
                   </span>
                 </div>
               ))}
-              <div ref={bottomRef} />
             </div>
           )}
         </div>

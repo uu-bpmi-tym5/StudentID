@@ -69,6 +69,23 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient();
+
+  // Reject if another event on the same tapper overlaps this time window
+  const { data: conflicts } = await supabase
+    .from("events")
+    .select("id")
+    .eq("tapper_id", tapper_id)
+    .lt("starts_at", ends_at)
+    .gt("ends_at", starts_at)
+    .limit(1);
+
+  if (conflicts && conflicts.length > 0) {
+    return NextResponse.json(
+      { error: "This tapper already has an event during that time window" },
+      { status: 409 }
+    );
+  }
+
   const { data, error } = await supabase
     .from("events")
     .insert({

@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { format } from "date-fns";
 import { ArrowLeft, Pencil } from "lucide-react";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
@@ -10,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusIndicator } from "@/components/shared/status-indicator";
+import { LocalDateTime } from "@/components/shared/local-date-time";
 import { EventAttendanceFeed } from "@/components/events/event-attendance-feed";
 import { EnrollmentManager } from "@/components/events/enrollment-manager";
 import { DeleteEventDetailsActions } from "@/components/events/delete-event-details-actions";
@@ -151,13 +151,13 @@ export default async function EventDetailPage({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Starts</span>
                   <span className="tabular-nums text-xs">
-                    {format(new Date(event.starts_at), "dd MMM yyyy · HH:mm")}
+                    <LocalDateTime iso={event.starts_at} />
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Ends</span>
                   <span className="tabular-nums text-xs">
-                    {format(new Date(event.ends_at), "dd MMM yyyy · HH:mm")}
+                    <LocalDateTime iso={event.ends_at} />
                   </span>
                 </div>
                 <div className="flex justify-between">
