@@ -11,7 +11,7 @@ import type { Database } from "@/lib/supabase/types";
 type EventSummary = Database["public"]["Views"]["event_attendance_summary"]["Row"];
 
 const chartConfig = {
-  pct: { label: "Attendance", color: "hsl(var(--chart-1))" },
+  pct: { label: "Attendance", color: "oklch(0.72 0.20 250)" },
 } satisfies ChartConfig;
 
 interface Props {

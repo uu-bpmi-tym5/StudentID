@@ -17,7 +17,7 @@ interface Props {
 }
 
 const chartConfig = {
-  count: { label: "Scans", color: "hsl(var(--chart-1))" },
+  count: { label: "Scans", color: "oklch(0.72 0.20 250)" },
 } satisfies ChartConfig;
 
 export function DashboardTrendChart({ data }: Props) {

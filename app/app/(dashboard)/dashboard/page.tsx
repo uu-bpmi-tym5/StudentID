@@ -175,7 +175,7 @@ export default async function DashboardPage() {
           <CardHeader>
             <CardTitle className="text-sm font-semibold">Attendance Trends (7 days)</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex items-center justify-center">
             <DashboardTrendChart data={trendData ?? []} />
           </CardContent>
         </Card>
