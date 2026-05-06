@@ -40,12 +40,13 @@ export default async function AnalyticsPage() {
         <ExportButton events={eventsForExport} />
       </PageHeader>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-semibold">
               Attendance Rate by Event
             </CardTitle>
+            <p className="text-xs text-muted-foreground">Most recent 10 events</p>
           </CardHeader>
           <CardContent>
             <AttendanceRateChart data={eventSummary ?? []} />
@@ -57,6 +58,7 @@ export default async function AnalyticsPage() {
             <CardTitle className="text-sm font-semibold">
               Scan Trend (Last 30 Days)
             </CardTitle>
+            <p className="text-xs text-muted-foreground">Daily scan count across all events</p>
           </CardHeader>
           <CardContent>
             <AttendanceTrendChart data={trendData ?? []} />

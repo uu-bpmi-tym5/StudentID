@@ -1,15 +1,12 @@
 "use client";
 
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid } from "recharts";
 import { format, parseISO } from "date-fns";
+import {
+  ChartContainer,
+  ChartTooltip,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 interface ScanRecord {
   scanned_at: string;
@@ -18,6 +15,10 @@ interface ScanRecord {
 interface Props {
   data: ScanRecord[];
 }
+
+const chartConfig = {
+  count: { label: "Scans", color: "hsl(var(--chart-1))" },
+} satisfies ChartConfig;
 
 export function AttendanceTrendChart({ data }: Props) {
   const counts: Record<string, number> = {};
@@ -36,19 +37,22 @@ export function AttendanceTrendChart({ data }: Props) {
 
   if (chartData.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
+      <div className="flex h-[280px] items-center justify-center text-xs text-muted-foreground">
         No scan data in the last 30 days
       </div>
     );
   }
 
   return (
-    <ResponsiveContainer width="100%" height={240}>
-      <LineChart
-        data={chartData}
-        margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
-      >
-        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+    <ChartContainer config={chartConfig} className="h-[280px] w-full">
+      <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--color-count)" stopOpacity={0.25} />
+            <stop offset="95%" stopColor="var(--color-count)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border/40" />
         <XAxis
           dataKey="label"
           tick={{ fontSize: 11 }}
@@ -61,31 +65,35 @@ export function AttendanceTrendChart({ data }: Props) {
           tick={{ fontSize: 11 }}
           tickLine={false}
           axisLine={false}
+          width={30}
         />
-        <Tooltip
-          contentStyle={{
-            fontSize: 12,
-            borderRadius: 6,
-            border: "1px solid hsl(var(--border))",
-            background: "hsl(var(--card))",
-            color: "hsl(var(--card-foreground))",
+        <ChartTooltip
+          cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const d = payload[0].payload as { label: string; count: number };
+            return (
+              <div className="rounded-lg border border-border/50 bg-background px-3 py-2 text-xs shadow-xl">
+                <p className="mb-1 font-medium text-foreground">{d.label}</p>
+                <p className="text-muted-foreground">
+                  <span className="font-mono font-semibold text-foreground">{d.count}</span>{" "}
+                  {d.count === 1 ? "scan" : "scans"}
+                </p>
+              </div>
+            );
           }}
-          formatter={(value, _name, entry) => [
-            `${value ?? 0} scans on ${(entry.payload as { label: string }).label}`,
-            "",
-          ]}
-          labelFormatter={() => ""}
         />
-        <Line
+        <Area
           type="monotone"
           dataKey="count"
-          stroke="hsl(var(--chart-1))"
+          stroke="var(--color-count)"
           strokeWidth={2}
-          dot={{ r: 3, fill: "hsl(var(--chart-1))" }}
-          activeDot={{ r: 5 }}
+          fill="url(#trendGradient)"
+          dot={false}
+          activeDot={{ r: 4, strokeWidth: 0 }}
         />
-      </LineChart>
-    </ResponsiveContainer>
+      </AreaChart>
+    </ChartContainer>
   );
 }
 
