@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Plus } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,11 @@ export function StudentsPageClient({ initial }: Props) {
   const [students, setStudents] = useState<StudentRow[]>(initial);
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Sync when the RSC re-renders with fresh data (e.g. after a card is assigned)
+  useEffect(() => {
+    setStudents(initial);
+  }, [initial]);
 
   const filtered = students.filter((s) => {
     const q = query.toLowerCase();

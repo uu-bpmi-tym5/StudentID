@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 import { EventsPageClient } from "@/components/events/events-page-client";
 import { StudentEventsClient } from "@/components/events/student-events-client";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Events",
 };

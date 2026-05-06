@@ -160,11 +160,69 @@ Activates or deactivates a card without removing the pairing.
 
 ---
 
+### `GET /api/events`
+**Called by:** Events page (staff view).  
+**Auth:** Requires authenticated staff session (admin or teacher).  
+Returns all events from `event_attendance_summary` view ordered by `starts_at DESC`.
+
+---
+
+### `POST /api/events`
+**Called by:** `CreateEventForm` on `/events/new`.  
+**Auth:** Requires authenticated staff session.  
+**Body:** `{ "title", "type", "tapper_id", "starts_at", "ends_at", "description?", "allow_self_enrollment?" }`  
+Validates time ordering and checks for tapper time-window conflicts before inserting. Returns `409` if the tapper already has an overlapping event.
+
+---
+
+### `GET /api/events/:id`
+**Called by:** Event detail page.  
+**Auth:** Requires authenticated staff session.  
+Returns event row (with joined tapper and creator profile), all enrollments, and the last 50 attendance logs.
+
+---
+
+### `PATCH /api/events/:id`
+**Called by:** `EditEventForm`.  
+**Auth:** Requires staff; only admin or the event's creator may update.  
+Partial update. Validates time ordering and tapper conflicts on updated fields. Returns `409` on overlap.
+
+---
+
+### `DELETE /api/events/:id`
+**Called by:** `DeleteEventDialog`.  
+**Auth:** Requires staff; only admin or the event's creator may delete.  
+Returns `204` on success.
+
+---
+
+### `GET /api/events/:id/enrollments`
+**Called by:** Event detail page (staff view).  
+**Auth:** Requires staff session.  
+Returns all enrolled profiles for the event.
+
+---
+
+### `POST /api/events/:id/enrollments`
+**Called by:** `EnrollmentManager` (staff) and `StudentEventsClient` (student self-enrollment).  
+**Auth:** Any authenticated user.  
+**Body:** `{ "profile_id": "<uuid>" }`  
+Staff may enroll any student. Students may only enroll themselves and only if `event.allow_self_enrollment = true`. Returns `409` if already enrolled.
+
+---
+
+### `DELETE /api/events/:id/enrollments/:profileId`
+**Called by:** `EnrollmentManager` (staff unenroll) and `StudentEventsClient` (student self-unenroll).  
+**Auth:** Any authenticated user.  
+Staff may remove any student. Students may only remove themselves from events where `allow_self_enrollment = true`. Returns `204` on success.
+
+---
+
 ### `GET /api/export`
-**Called by:** Admin/teacher from the analytics page.  
-**Auth:** Requires authenticated session (Supabase Auth cookie).  
-**Query params:** `event_id`, `format` (`csv` | `pdf`).  
-Returns an attendance report for the requested event as a downloadable file.
+**Called by:** `ExportDialog` on the analytics page.  
+**Auth:** Requires authenticated staff session (admin or teacher).  
+**Query params:** `event_id?`, `from?` (ISO date), `to?` (ISO date).  
+Returns a CSV file (`Content-Disposition: attachment; filename="attendance-export.csv"`) with columns: `scanned_at`, `student_name`, `student_id`, `card_uid`, `tapper_id`, `event_title`. All filters are optional — omitting all returns the full log.
 
 ---
 
@@ -178,24 +236,26 @@ All dashboard pages live under the `(dashboard)` route group and require an auth
 |---|---|---|
 | `/login` | Email + password sign-in | Public |
 | `/register` | Account creation — role defaults to `student` | Public |
+| `/reset-password` | Request a password reset email | Public |
+| `/update-password` | Set a new password after clicking the reset link | Public (requires reset token) |
 
 ### Dashboard
 
 | Route | Description | Roles |
 |---|---|---|
-| `/dashboard` | Overview — attendance summary, today's events | Admin, Teacher |
-| `/events` | List of all events | Admin, Teacher |
-| `/events/new` | Create a new event | Admin, Teacher |
-| `/events/[eventId]` | Event detail — live attendance feed | Admin, Teacher |
-| `/events/[eventId]/edit` | Edit event metadata and enrollment | Admin, Teacher |
+| `/dashboard` | Overview — live stat cards, recent activity feed, 7-day scan trend chart | Admin, Teacher |
+| `/events` | Staff: full event list with type/search filters. Student: card grid of visible events with self-enrollment controls | All |
+| `/events/new` | Create a new event (title, type, tapper, date range, description, self-enrollment toggle) | Admin, Teacher |
+| `/events/[eventId]` | Event detail — live attendance feed (Realtime), enrollment manager, edit/delete actions | Admin, Teacher |
+| `/events/[eventId]/edit` | Edit event metadata (pre-populated form) | Admin, Teacher |
 | `/students` | Student directory with search | Admin, Teacher |
 | `/students/[studentId]` | Individual student record and attendance history | Admin, Teacher |
 | `/tappers` | NFC device list with online/offline status | Admin |
 | `/tappers/[tapperId]` | Device detail — assigned events, last seen, location | Admin |
 | `/cards` | NFC card pairing — scan-to-assign flow with live pending feed | Admin |
-| `/analytics` | Charts and trends — per-event and per-student attendance rates | Admin, Teacher |
-| `/my-attendance` | Personal attendance view — events, status, percentage | Student |
-| `/settings` | System configuration | Admin |
+| `/analytics` | Attendance rate bar chart (last 10 events), 30-day scan trend area chart, CSV export | Admin, Teacher |
+| `/my-attendance` | Personal stats (overall rate, attended count, streak) + full attendance history table | Student |
+| `/settings` | System info — masked webhook secret, app URL, MQTT config, planned settings | Admin |
 
 ---
 
@@ -220,7 +280,7 @@ Existing pairings are shown in the **Paired cards** table below, where cards can
 profiles          — one row per auth user; role: admin | teacher | student
 nfc_cards         — NFC card UID → profile mapping; supports activate/deactivate
 tappers           — physical device registry; ID matches MQTT topic namespace
-events            — time-bounded session (lecture, exam, lab, other)
+events            — time-bounded session (lecture, exam, lab, other); allow_self_enrollment flag
 event_enrollments — which students are expected at which event
 attendance_logs   — immutable scan records written by /api/scan; single source of truth
 ```
@@ -231,7 +291,7 @@ Row-Level Security (RLS) is enforced at the database level:
 
 | Role | Profiles | NFC Cards | Events | Attendance Logs |
 |---|---|---|---|---|
-| Student | Read own | Read own | — | Read own |
+| Student | Read own | Read own | Read (self-enrollable + enrolled) | Read own |
 | Teacher | Read all | Read all | Read all, write own | Read all |
 | Admin | Full | Full | Full | Full |
 | `/api/scan` webhook | — | Read all | Read all | Write (service role) |
@@ -300,19 +360,26 @@ StudentID/
 │   └── README.md
 └── app/                 — Next.js full-stack application
     ├── app/
-    │   ├── (auth)/      — /login, /register
+    │   ├── (auth)/      — /login, /register, /reset-password, /update-password
     │   ├── (dashboard)/ — all authenticated pages (role-gated)
     │   └── api/
     │       ├── scan/    — POST: NFC tap webhook (called by broker.py)
-    │       ├── cards/   — GET/POST: card pairing; DELETE/PATCH: card management
-    │       └── export/  — GET: CSV/PDF attendance export
+    │       ├── cards/   — GET/POST: card pairing; [id]: DELETE/PATCH
+    │       ├── events/  — GET/POST; [id]: GET/PATCH/DELETE; [id]/enrollments: GET/POST/DELETE
+    │       ├── students/— GET/POST: student management
+    │       ├── tappers/ — GET/POST; [id]/heartbeat: POST
+    │       └── export/  — GET: CSV attendance export
     ├── components/
-    │   ├── auth/        — login-form, register-form
+    │   ├── analytics/   — attendance-rate-chart, attendance-trend-chart, export-button, export-dialog
+    │   ├── auth/        — login-form, register-form, forgot-password-form, update-password-form
     │   ├── cards/       — assign-card-dialog, unregistered-scans, cards-table
-    │   ├── dashboard/   — app-sidebar (role-filtered navigation)
-    │   ├── shared/      — page-header, logo, status-indicator
-    │   └── ui/          — base UI primitives (button, dialog, table, …)
-    ├── lib/supabase/    — browser/server/admin clients + generated types
+    │   ├── dashboard/   — app-sidebar (role-filtered navigation), dashboard-trend-chart
+    │   ├── events/      — create-event-form, edit-event-form, events-page-client, events-table, event-attendance-feed, enrollment-manager, student-events-client, delete-event-dialog, delete-event-details-actions
+    │   ├── shared/      — page-header, logo, status-indicator, local-date-time
+    │   ├── students/    — add-student-dialog, students-page-client, students-table
+    │   ├── tappers/     — register-tapper-dialog, tappers-page-client, tappers-table
+    │   └── ui/          — base UI primitives (button, dialog, table, chart, …)
+    ├── lib/supabase/    — browser/server/admin clients, auth helpers + generated types
     ├── middleware.ts    — session auth + role-based route protection
     └── supabase/
         ├── migrations/  — 20240001_initial_schema.sql, 20240002_rls.sql
@@ -436,11 +503,11 @@ These are the HTTP endpoints that bridge the firmware to the application layer.
 ---
 
 ### `GET /api/export`
-**Called by:** Admin/teacher from the analytics page.  
-**Auth:** Requires authenticated session (Supabase Auth cookie).  
-**Query params:** `event_id`, `format` (`csv` | `pdf`).
+**Called by:** `ExportDialog` on the analytics page.  
+**Auth:** Requires authenticated staff session (admin or teacher).  
+**Query params:** `event_id?`, `from?` (ISO date), `to?` (ISO date).
 
-Returns an attendance report for the requested event as a downloadable file.
+Returns attendance logs as a CSV file. All query parameters are optional — omitting all returns the full log. Columns: `scanned_at`, `student_name`, `student_id`, `card_uid`, `tapper_id`, `event_title`.
 
 ---
 
@@ -453,25 +520,27 @@ All dashboard pages live under the `(dashboard)` route group and require an auth
 | Route | Description | Access |
 |---|---|---|
 | `/login` | Email + password sign-in | Public |
-| `/register` | Account creation (invite-only or open) | Public |
+| `/register` | Account creation (role defaults to `student`) | Public |
+| `/reset-password` | Request a password reset email | Public |
+| `/update-password` | Set a new password after clicking the reset link | Public (requires reset token) |
 
 ### Dashboard
 
 | Route | Description | Roles |
 |---|---|---|
-| `/dashboard` | Overview — attendance summary, today's events | All |
-| `/events` | List of all events (filterable by type, date, tapper) | All |
+| `/dashboard` | Overview — live stat cards (active events, student count, tappers online, avg attendance), recent activity feed, 7-day scan trend chart | Admin, Teacher |
+| `/events` | Staff: searchable, filterable event table. Student: card grid of self-enrollable + enrolled events with enroll/unenroll controls | All |
 | `/events/new` | Create a new event | Admin, Teacher |
-| `/events/[eventId]` | Event detail — live attendance feed via Supabase Realtime | All |
-| `/events/[eventId]/edit` | Edit event metadata and enrollment | Admin, Teacher |
+| `/events/[eventId]` | Event detail — live Realtime attendance feed, enrollment manager, edit/delete actions | Admin, Teacher |
+| `/events/[eventId]/edit` | Edit event metadata (pre-populated form, tapper conflict validation) | Admin, Teacher |
 | `/students` | Student directory with search | Admin, Teacher |
 | `/students/[studentId]` | Individual student record and attendance history | Admin, Teacher |
-| `/tappers` | NFC device list with online/offline status | Admin |
+| `/tappers` | NFC device list with live online/offline status | Admin |
 | `/tappers/[tapperId]` | Device detail — assigned events, last seen, location | Admin |
 | `/cards` | NFC card registry — pair / unpair cards to students | Admin |
-| `/analytics` | Charts and trends — per-event and per-student attendance rates | Admin, Teacher |
-| `/my-attendance` | Personal attendance view — events, status, percentage | Student |
-| `/settings` | System configuration — late threshold, grace period | Admin |
+| `/analytics` | Attendance rate bar chart (last 10 events), 30-day scan trend area chart, CSV export dialog | Admin, Teacher |
+| `/my-attendance` | Personal stats (overall rate, events attended, attendance streak) + full attendance history table | Student |
+| `/settings` | System info — masked webhook secret, app URL, MQTT config | Admin |
 
 Route protection and role-based redirects are handled in `app/middleware.ts` using Supabase session cookies.
 
@@ -483,7 +552,7 @@ Route protection and role-based redirects are handled in `app/middleware.ts` usi
 profiles          — one row per auth user; role: admin | teacher | student
 nfc_cards         — NFC card UID → profile mapping (one student, many cards)
 tappers           — physical device registry; ID matches MQTT topic namespace
-events            — time-bounded session (lecture, exam, lab, other)
+events            — time-bounded session (lecture, exam, lab, other); allow_self_enrollment flag
 event_enrollments — which students are expected at which event
 attendance_logs   — immutable scan records written by /api/scan; single source of truth
 ```
@@ -554,13 +623,28 @@ StudentID/
 │   └── README.md
 └── app/                 — Next.js full-stack application
     ├── app/
-    │   ├── (auth)/      — login, register
-    │   ├── (dashboard)/ — all authenticated pages
+    │   ├── (auth)/      — /login, /register, /reset-password, /update-password
+    │   ├── (dashboard)/ — all authenticated pages (role-gated)
     │   └── api/
     │       ├── scan/    — POST: NFC tap webhook (called by broker.py)
-    │       └── export/  — GET: CSV/PDF attendance export
-    ├── components/      — shared UI components
-    ├── lib/supabase/    — Supabase client helpers + generated types
+    │       ├── cards/   — GET/POST: card pairing; [id]: DELETE/PATCH card management
+    │       ├── events/  — GET/POST: event list/create; [id]: GET/PATCH/DELETE; [id]/enrollments: GET/POST; [id]/enrollments/[profileId]: DELETE
+    │       ├── students/— GET/POST: student list + admin-create
+    │       ├── tappers/ — GET/POST: tapper registry; [id]/heartbeat: POST
+    │       └── export/  — GET: CSV attendance export
+    ├── components/
+    │   ├── analytics/   — attendance-rate-chart, attendance-trend-chart, export-button, export-dialog
+    │   ├── auth/        — login-form, register-form, forgot-password-form, update-password-form
+    │   ├── cards/       — assign-card-dialog, unregistered-scans, cards-table
+    │   ├── dashboard/   — app-sidebar (role-filtered navigation), dashboard-trend-chart
+    │   ├── events/      — create-event-form, edit-event-form, events-page-client, events-table, event-attendance-feed, enrollment-manager, student-events-client, delete-event-dialog, delete-event-details-actions
+    │   ├── shared/      — page-header, logo, status-indicator, local-date-time
+    │   ├── students/    — add-student-dialog, students-page-client, students-table
+    │   ├── tappers/     — register-tapper-dialog, tappers-page-client, tappers-table
+    │   └── ui/          — base UI primitives (button, dialog, table, chart, …)
+    ├── lib/supabase/    — browser/server/admin clients, auth helpers (requireAdmin, requireStaff) + generated types
+    ├── middleware.ts    — session auth + role-based route protection
     └── supabase/
-        └── migrations/  — Postgres schema + RLS policies
+        ├── migrations/  — 20240001_initial_schema.sql, 20240002_rls.sql
+        └── seed.sql     — admin account for local development
 ```

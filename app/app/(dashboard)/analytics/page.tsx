@@ -6,6 +6,8 @@ import { AttendanceRateChart } from "@/components/analytics/attendance-rate-char
 import { AttendanceTrendChart } from "@/components/analytics/attendance-trend-chart";
 import { ExportButton } from "@/components/analytics/export-button";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = { title: "Analytics" };
 
 export default async function AnalyticsPage() {

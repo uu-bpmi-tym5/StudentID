@@ -1,7 +1,7 @@
 # StudentID — Frontend Technical Documentation
 
 > **Scope:** Next.js application layer — routing, layouts, pages, components, data fetching, state management, real-time subscriptions, design system, and client/server rendering boundaries.
-> **Last updated:** April 2026
+> **Last updated:** May 2026
 
 ---
 
@@ -21,6 +21,8 @@
    - 5.1 [Auth Layout](#51-auth-layout)
    - 5.2 [/login](#52-login)
    - 5.3 [/register](#53-register)
+   - 5.4 [/reset-password](#54-reset-password)
+   - 5.5 [/update-password](#55-update-password)
 6. [Dashboard Group — `(dashboard)`](#6-dashboard-group--dashboard)
    - 6.1 [Dashboard Layout & Sidebar](#61-dashboard-layout--sidebar)
    - 6.2 [/dashboard](#62-dashboard)
@@ -43,7 +45,9 @@
    - 7.4 [Students Components](#74-students-components)
    - 7.5 [Tappers Components](#75-tappers-components)
    - 7.6 [Cards Components](#76-cards-components)
-   - 7.7 [UI Primitives (shadcn/ui)](#77-ui-primitives-shadcnui)
+   - 7.7 [Events Components](#77-events-components)
+   - 7.8 [Analytics Components](#78-analytics-components)
+   - 7.9 [UI Primitives (shadcn/ui)](#79-ui-primitives-shadcnui)
 8. [Rendering Strategy — RSC vs Client Components](#8-rendering-strategy--rsc-vs-client-components)
 9. [Data Fetching Patterns](#9-data-fetching-patterns)
    - 9.1 [Server-Side Fetching (RSC)](#91-server-side-fetching-rsc)
@@ -78,6 +82,7 @@
 | Styling | Tailwind CSS v4 | ^4 |
 | Animation utilities | `tw-animate-css` | ^1.4.0 |
 | Icons | `lucide-react` | ^1.7.0 |
+| Charts | `recharts` | ^3.8.0 |
 | Forms | `react-hook-form` | ^7.72.0 |
 | Schema validation | Zod | ^4.3.6 |
 | Form + Zod bridge | `@hookform/resolvers` | ^5.2.2 |
@@ -162,6 +167,7 @@ The project uses shadcn/ui as its component base, installed at `app/components/u
 | `badge.tsx` | `Badge` — variants: `default`, `secondary`, `outline`, `destructive` |
 | `button.tsx` | `Button` — variants: `default`, `outline`, `ghost`, `destructive`; sizes: `default`, `sm`, `icon-sm` |
 | `card.tsx` | `Card`, `CardContent`, `CardHeader`, `CardFooter` |
+| `chart.tsx` | `ChartContainer`, `ChartTooltip`, `ChartConfig` — Recharts wrapper from shadcn |
 | `dialog.tsx` | `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter` |
 | `dropdown-menu.tsx` | `DropdownMenu` family |
 | `input.tsx` | `Input` |
@@ -218,7 +224,7 @@ The App Router file tree uses two **route groups** (parenthesised directories) t
 
 | Route Group | Layout File | Pages Contained |
 |---|---|---|
-| `(auth)` | `app/(auth)/layout.tsx` | `/login`, `/register` |
+| `(auth)` | `app/(auth)/layout.tsx` | `/login`, `/register`, `/reset-password`, `/update-password` |
 | `(dashboard)` | `app/(dashboard)/layout.tsx` | All authenticated pages |
 
 The root `app/page.tsx` is a simple redirect: it immediately calls `redirect("/dashboard")` with no UI.
@@ -232,22 +238,24 @@ The root `app/page.tsx` is a simple redirect: it immediately calls `redirect("/d
 │
 ├── (auth)
 │   ├── /login              LoginPage       → LoginForm (client)
-│   └── /register           RegisterPage    → RegisterForm (client)
+│   ├── /register           RegisterPage    → RegisterForm (client)
+│   ├── /reset-password     ResetPasswordPage → ForgotPasswordForm (client)
+│   └── /update-password    UpdatePasswordPage → UpdatePasswordForm (client, Suspense)
 │
 └── (dashboard)
-    ├── /dashboard          DashboardPage   (RSC stub — static stats grid)
-    ├── /events             EventsPage      (RSC stub — empty state)
-    │   ├── /events/new     NewEventPage    (RSC stub — placeholder form)
-    │   └── /events/:id     EventDetailPage (RSC stub — live feed placeholder)
-    │       └── /edit       EditEventPage   (RSC stub)
+    ├── /dashboard          DashboardPage   (RSC — live stat cards + recent activity + 7-day trend chart)
+    ├── /events             EventsPage      (RSC — dual view: staff table / student card grid)
+    │   ├── /events/new     NewEventPage    (RSC — fetches tappers → CreateEventForm)
+    │   └── /events/:id     EventDetailPage (RSC — full detail, Realtime feed, enrollment manager)
+    │       └── /edit       EditEventPage   (RSC — fetches event + tappers → EditEventForm)
     ├── /students           StudentsPage    (RSC → StudentsPageClient)
     │   └── /students/:id   StudentDetailPage (RSC — full detail view)
     ├── /tappers            TappersPage     (RSC → TappersPageClient + Realtime)
     │   └── /tappers/:id    TapperDetailPage (RSC — full detail view)
     ├── /cards              CardsPage       (RSC → UnregisteredScans (Realtime) + CardsTable)
-    ├── /analytics          AnalyticsPage   (RSC stub)
-    ├── /my-attendance      MyAttendancePage (RSC stub — student-only)
-    └── /settings           SettingsPage    (RSC stub — admin-only)
+    ├── /analytics          AnalyticsPage   (RSC — event summary + 30-day trend → charts + export)
+    ├── /my-attendance      MyAttendancePage (RSC — student stats + attendance history table)
+    └── /settings           SettingsPage    (RSC — read-only env var display)
 ```
 
 ---
@@ -299,6 +307,7 @@ Card (border + bg-card + shadow)
   Submit button (full-width, spinner on pending)
 ─────────────────────────────────
 "Don't have an account? Create one →" (link to /register)
+"Forgot your password?" (link to /reset-password)
 ```
 
 ### 5.3 /register
@@ -326,6 +335,53 @@ Renders `<RegisterForm />` directly (no Suspense needed — no `useSearchParams`
 **Fields:** Full Name, Email, Password, Confirm Password.
 
 > **Note:** The `on_auth_user_created` DB trigger fires on `auth.signUp`, automatically creating a `profiles` row with `role = 'student'`. The `full_name` field in `options.data` is picked up by the trigger via `raw_user_meta_data->>'full_name'`.
+
+### 5.4 /reset-password
+
+**File:** `app/app/(auth)/reset-password/page.tsx`  
+**Type:** Server Component  
+**Metadata:** `title: "Reset Password"`
+
+Renders `<ForgotPasswordForm />` directly.
+
+#### `ForgotPasswordForm` Component
+
+**File:** `app/components/auth/forgot-password-form.tsx`  
+**Type:** Client Component (`"use client"`)
+
+| Aspect | Detail |
+|---|---|
+| State | `useTransition` + local `sent: boolean` state |
+| Form library | `react-hook-form` with `zodResolver` |
+| Validation schema | `{ email: z.string().email() }` |
+| Auth method | `supabase.auth.resetPasswordForEmail(email, { redirectTo: "/update-password" })` |
+| Success | Always shows a "Check your email" confirmation (regardless of whether email exists — security practice) |
+
+**Fields:** Email only.
+
+### 5.5 /update-password
+
+**File:** `app/app/(auth)/update-password/page.tsx`  
+**Type:** Server Component  
+**Metadata:** `title: "Update Password"`
+
+Wraps `<UpdatePasswordForm />` in `<Suspense>`.
+
+#### `UpdatePasswordForm` Component
+
+**File:** `app/components/auth/update-password-form.tsx`  
+**Type:** Client Component (`"use client"`)
+
+| Aspect | Detail |
+|---|---|
+| State | `useTransition` for async pending state |
+| Form library | `react-hook-form` with `zodResolver` |
+| Validation schema | `{ password: min(6), confirm: min(6) }` + `.refine()` for password match |
+| Auth method | `supabase.auth.updateUser({ password })` via browser client |
+| Success | `toast.success("Password updated")` → role-based redirect: student → `/my-attendance`, staff → `/dashboard` |
+| Error | `toast.error("Failed to update password", { description: error.message })` |
+
+**Fields:** New password, Confirm password.
 
 ---
 
@@ -407,74 +463,181 @@ The sidebar is role-aware. Navigation items are declared in three arrays and fil
 ### 6.2 /dashboard
 
 **File:** `app/app/(dashboard)/dashboard/page.tsx`  
-**Type:** Server Component (static — no DB queries)  
+**Type:** Server Component (async — multiple DB queries)  
 **Metadata:** `title: "Dashboard"`  
 **Access:** `admin`, `teacher` (middleware blocks `student` → redirect to `/my-attendance`)
 
-**Status: ⚠️ Stub — no live data**
+Fetches all data in parallel via `Promise.all`:
 
-Renders a static grid of 4 stat cards (values hardcoded to `"—"`) and two placeholder content cards:
+| Query | Value Derived |
+|---|---|
+| `events` count where `is_active=true` and `ends_at >= now` | Active events count |
+| `profiles` count where `role='student'` | Total student count |
+| `tappers` count where `is_online=true` | Tappers online count |
+| `event_attendance_summary` all `attendance_pct` values | Average attendance % across all events |
+| `attendance_logs` last 10 ordered by `scanned_at DESC` | Recent activity feed |
+| `attendance_logs` `scanned_at` values from last 7 days | 7-day trend chart data |
 
-| Stat Card | Icon | Value |
-|---|---|---|
-| Active Events | `CalendarDays` | — |
-| Students | `GraduationCap` | — |
-| Tappers Online | `Radio` | — |
-| Avg. Attendance | `TrendingUp` | — |
-
-Each stat card has a decorative `bg-gradient-to-r from-primary/40` bottom accent line (2 px).
-
-Two placeholder cards labelled "Recent Activity" and "Attendance Trends" display empty-state messages.
+Renders a 4-stat card grid followed by a 2-column layout:
+- **Left:** Recent Activity feed — avatar monogram, name (or "Unknown card"), tapper ID, relative time
+- **Right:** Attendance Trends (7 days) — `DashboardTrendChart` (bar chart, daily scan counts)
 
 ---
 
 ### 6.3 /events
 
 **File:** `app/app/(dashboard)/events/page.tsx`  
-**Type:** Server Component (no DB queries)  
+**Type:** Server Component (async)  
 **Metadata:** `title: "Events"`
 
-**Status: ⚠️ Stub — no live data, empty state only**
+Fetches the caller's profile role, then renders one of two views:
 
-Renders the `PageHeader` with a "New Event" button linking to `/events/new`, then displays a single empty-state card with a `CalendarDays` icon.
+**Staff view (admin / teacher):** Fetches `event_attendance_summary` ordered by `starts_at DESC`. Passes data to `<EventsPageClient>` with a "New Event" button in the header.
+
+**Student view:** Fetches `event_attendance_summary` + the student's own `event_enrollments`. Filters to events where `allow_self_enrollment = true` OR the student is already enrolled. Passes to `<StudentEventsClient>`.
+
+#### `EventsPageClient` Component
+
+**File:** `app/components/events/events-page-client.tsx`  
+**Type:** Client Component
+
+Provides type filter tabs (All / Exam / Lecture / Lab / Other) and a search input. Both work client-side over the server-fetched list. Passes filtered results to `<EventsTable>`. Shows an empty-state card with a "Create Event" link when no results exist.
+
+#### `EventsTable` Component
+
+**File:** `app/components/events/events-table.tsx`  
+**Type:** Client Component
+
+Displays a full `Table` of event summaries. All title cells link to `/events/:id`.
+
+**Table columns:** Title, Type (badge), Tapper (monospace code), Date range (`starts_at → ends_at`), Enrolled count, Attendance % (from `event_attendance_summary`), Status (Active / Past).
+
+#### `StudentEventsClient` Component
+
+**File:** `app/components/events/student-events-client.tsx`  
+**Type:** Client Component
+
+Renders event cards in a responsive grid. Supports type filter tabs, text search, and an "Enrolled only" toggle filter.
+
+Each card shows event type badge, upcoming/past indicator, title, date range, tapper ID, and enrolled count. **Self-enrollment controls:**
+- If `allow_self_enrollment = true` and student is not enrolled: **"Enroll"** button → `POST /api/events/:id/enrollments`
+- If enrolled and `allow_self_enrollment = true`: **"Unenroll"** button → `DELETE /api/events/:id/enrollments/:profileId`
+- If enrolled by staff (`allow_self_enrollment = false`): Shows "Enrolled by staff" label, no action button
+- Enrolled cards get a green border highlight and an "Enrolled" badge
 
 ---
 
 ### 6.4 /events/new
 
 **File:** `app/app/(dashboard)/events/new/page.tsx`  
-**Type:** Server Component  
+**Type:** Server Component (async)  
 **Metadata:** `title: "New Event"`
 
-**Status: ⚠️ Stub**
+Fetches all tappers (`id`, `name`) for the tapper select dropdown. Renders `<CreateEventForm tappers={tappers} />`.
 
-Placeholder card describing the planned fields: title, type, date/time range, tapper assignment, student enrollment.
+#### `CreateEventForm` Component
+
+**File:** `app/components/events/create-event-form.tsx`  
+**Type:** Client Component
+
+| Aspect | Detail |
+|---|---|
+| Form library | `react-hook-form` with `zodResolver` |
+| Validation | title, type (select), tapper_id (select), starts_at, ends_at + `.refine()` for time ordering, description (optional), allow_self_enrollment (checkbox) |
+| API call | `POST /api/events` with ISO datetime strings |
+| `409` handling | `toast.error("Failed to create event", { description: err.error })` |
+| Success | `toast.success("Event created")` → `router.push("/events/:id")` |
+
+**Fields:** Title, Type (select), Tapper (select), Starts at (datetime-local), Ends at (datetime-local), Description (textarea, optional), Allow self-enrollment (checkbox).
 
 ---
 
 ### 6.5 /events/[eventId]
 
 **File:** `app/app/(dashboard)/events/[eventId]/page.tsx`  
-**Type:** Server Component (async — reads `params`)  
-**Metadata:** `title: "Event Detail"` (static, not dynamic)
+**Type:** Server Component (async)  
+**Dynamic metadata:** Fetches `events.title` for `<title>`  
+**Access:** Staff only — students accessing this URL are redirected to `/events`
 
-**Status: ⚠️ Stub — no DB queries**
+**Data fetched (parallel `Promise.all`):**
+1. `events.*` with joined tapper and creator profile
+2. `event_enrollments.*` with nested profile details
+3. `attendance_logs` last 50 with profile names
+4. All student profiles for the enrollment manager
 
-Renders a 3-column grid:
-- Left col (1 span): placeholder event details card.
-- Right col (2 spans): "Live Attendance Feed" placeholder indicating Supabase Realtime integration is planned.
+**Layout:** 3-column grid (lg breakpoint):
 
-Shows a `Badge` with the first 8 chars of `eventId` as a shorthand identifier.
+**Left column (1 span) — Event Info Card:**
+- Title + type badge
+- Description (if set)
+- Tapper ID + name, start/end times (`LocalDateTime`), status (Active/Past `StatusIndicator`), self-enrollment badge, creator name
+- Edit button → `/events/:id/edit`
+- Delete button → `DeleteEventDetailsActions` (opens `DeleteEventDialog`)
+
+**Right column (2 spans):**
+- `EventAttendanceFeed` — Supabase Realtime live feed
+- `EnrollmentManager` — search, enroll, and unenroll students
+
+#### `EventAttendanceFeed` Component
+
+**File:** `app/components/events/event-attendance-feed.tsx`  
+**Type:** Client Component
+
+Shows a scrollable list of scan log entries (initial 50 from server; new entries prepended via Realtime). Each entry shows:
+- Colour dot: green (known student + active event), yellow (known student, no event), red (unknown card)
+- Scan time (`HH:mm:ss`)
+- Card UID (monospace)
+- Student name or "Unknown card" (italic)
+
+**Realtime subscription:**
+```typescript
+supabase
+  .channel(`attendance_feed_${eventId}`)
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "attendance_logs",
+      filter: `event_id=eq.${eventId}` }, handler)
+  .subscribe()
+```
+On INSERT: fetches the profile name from `profiles` if `profile_id` is non-null, then prepends the enriched log to state.
+
+#### `EnrollmentManager` Component
+
+**File:** `app/components/events/enrollment-manager.tsx`  
+**Type:** Client Component
+
+Shows a list of enrolled students (with unenroll `UserMinus` button for each) and a searchable list of all unenrolled students with per-row "Enroll" buttons.
+
+- Enroll: `POST /api/events/:id/enrollments { profile_id }` → optimistically prepends to enrolled list
+- Unenroll: `DELETE /api/events/:id/enrollments/:profileId` → removes from enrolled list
+
+#### `DeleteEventDetailsActions` / `DeleteEventDialog` Components
+
+**Files:** `components/events/delete-event-details-actions.tsx`, `delete-event-dialog.tsx`  
+**Type:** Client Components
+
+`DeleteEventDetailsActions` manages a local `open` boolean and renders the "Delete" button + `DeleteEventDialog`. The dialog confirms deletion, calls `DELETE /api/events/:id`, then redirects to `/events`.
 
 ---
 
 ### 6.6 /events/[eventId]/edit
 
 **File:** `app/app/(dashboard)/events/[eventId]/edit/page.tsx`  
-**Type:** Server Component  
-**Metadata:** `title: "Edit Event"`
+**Type:** Server Component (async)  
+**Dynamic metadata:** `"Edit · {event.title}"`
 
-**Status: ⚠️ Stub** — placeholder card only.
+Fetches the event row and all tappers. Renders `<EditEventForm event={event} tappers={tappers} />`.
+
+#### `EditEventForm` Component
+
+**File:** `app/components/events/edit-event-form.tsx`  
+**Type:** Client Component
+
+Same fields as `CreateEventForm`. Pre-populates all fields from the `event` prop using `toDatetimeLocal()` helper for datetime-local inputs.
+
+| Aspect | Detail |
+|---|---|
+| API call | `PATCH /api/events/:id` with ISO datetime strings |
+| `409` handling | `toast.error("Failed to update event", { description: err.error })` |
+| Success | `toast.success("Event updated")` → `router.push("/events/:id")` |
 
 ---
 
@@ -815,43 +978,89 @@ Both operations use `useTransition` and show `toast.error` on failure.
 ### 6.12 /analytics
 
 **File:** `app/app/(dashboard)/analytics/page.tsx`  
-**Type:** Server Component  
-**Metadata:** `title: "Analytics"`
+**Type:** Server Component (async)  
+**Metadata:** `title: "Analytics"`  
+**Access:** `admin`, `teacher`
 
-**Status: ⚠️ Stub**
+**Data fetched (parallel `Promise.all`):**
+1. `event_attendance_summary.*` ordered by `starts_at DESC`
+2. `attendance_logs.scanned_at` for the last 30 days
 
-Renders `PageHeader` with a wired-up (but non-functional) "Export" button (`Download` icon, calls nothing), and two placeholder cards for "Attendance rate chart" and "Trend over time chart".
+**Rendered structure:**
+```
+PageHeader ("Analytics" + ExportButton)
+Card: "Attendance Rate by Event" → AttendanceRateChart (last 10 events)
+Card: "Scan Trend (Last 30 Days)"  → AttendanceTrendChart
+```
+
+#### `AttendanceRateChart` Component
+
+**File:** `app/components/analytics/attendance-rate-chart.tsx`  
+**Type:** Client Component
+
+A **bar chart** (Recharts `BarChart`) showing `attendance_pct` for the most recent 10 events. Titles are truncated to 13 chars on the X-axis. Custom tooltip shows full title, percentage, and attended/enrolled counts.
+
+Empty state: "No events with attendance data yet".
+
+#### `AttendanceTrendChart` Component
+
+**File:** `app/components/analytics/attendance-trend-chart.tsx`  
+**Type:** Client Component
+
+An **area chart** (Recharts `AreaChart`) showing daily scan counts across all events for the last 30 days. Groups raw `scanned_at` timestamps by `yyyy-MM-dd`. Custom tooltip shows date + scan count.
+
+Empty state: "No scan data in the last 30 days".
+
+#### `ExportButton` / `ExportDialog` Components
+
+**Files:** `app/components/analytics/export-button.tsx`, `export-dialog.tsx`  
+**Type:** Client Components
+
+`ExportButton` renders a "Export" outlined button; clicking opens `ExportDialog`. The dialog allows selecting an event (or "All events"), a `from` date, and a `to` date, then calls `GET /api/export?event_id=...&from=...&to=...` via `window.open()` to trigger a CSV download.
 
 ---
 
 ### 6.13 /my-attendance
 
 **File:** `app/app/(dashboard)/my-attendance/page.tsx`  
-**Type:** Server Component (no DB queries)  
+**Type:** Server Component (async)  
 **Metadata:** `title: "My Attendance"`  
 **Access:** `student` role (middleware redirects admin/teacher to `/dashboard`)
 
-**Status: ⚠️ Stub**
+**Data fetched (parallel `Promise.all`):**
+1. `attendance_logs.*` with joined event details (`events(id, title, type, starts_at)`) — all logs for the current user
+2. `event_enrollments` with event dates for the current user
 
-Shows three stat cards (Overall Rate `—%`, Events Attended `—`, Current Streak `—`) and one placeholder card for attendance history.
+**Computed stats:**
+- **Overall Rate:** `attendedEventIds.size / enrollments.length * 100`, formatted as percentage (or `"—"` if no enrollments)
+- **Events Attended:** Count of distinct event IDs in attendance logs
+- **Current Streak:** Consecutive events attended (enrollments sorted most-recent-first, streak breaks at first missed event)
+
+**Rendered structure:**
+```
+PageHeader ("My Attendance")
+3-stat card grid: Overall Rate | Events Attended | Current Streak
+Card: Attendance History (table)
+```
+
+**History table columns:** Event (title + type badge, linked to `/events/:id`), Date (`dd MMM yyyy · HH:mm`), Tapper (monospace code), Status ("Present" green badge).
 
 ---
 
 ### 6.14 /settings
 
 **File:** `app/app/(dashboard)/settings/page.tsx`  
-**Type:** Server Component  
+**Type:** Server Component (reads env vars server-side)  
 **Metadata:** `title: "Settings"`  
 **Access:** `admin` only
 
-**Status: ⚠️ Stub**
+Reads `SCAN_WEBHOOK_SECRET` and `APP_URL` from `process.env` (server-side only — never sent to the browser in full).
 
-Three settings section headers with `Separator` dividers:
-1. **Attendance Rules** — late threshold, grace period, academic terms.
-2. **Webhook Configuration** — MQTT bridge secret and broker connection settings.
-3. **Notifications** — email alerts for tamper events and device offline.
+Three display sections (no editable forms — read-only display):
 
-No forms or actual settings persistence implemented.
+1. **Attendance Rules** — Late threshold and grace period, both marked "Configurable in a future release".
+2. **Webhook Configuration** — Webhook secret (masked: `••••••••{last4chars}`), App URL, MQTT port (`1883`), Broker listener (`0.0.0.0:1883`).
+3. **Notifications** — Tamper alerts ("Not configured"), Offline detection ("Planned cron/TTL implementation — not yet available").
 
 ---
 
@@ -912,6 +1121,17 @@ A 2 × 2 (`h-2 w-2`) filled `rounded-full` dot with optional label.
 
 `pulse` defaults to `true` when `variant === "online"`. Can be overridden.
 
+#### `LocalDateTime`
+
+**File:** `app/components/shared/local-date-time.tsx`  
+**Type:** Client Component (`"use client"`)
+
+```typescript
+<LocalDateTime iso="2026-05-10T09:00:00.000Z" fmt="dd MMM yyyy · HH:mm" />
+```
+
+Renders a formatted datetime string using `date-fns/format`. Defaults to `"dd MMM yyyy · HH:mm"`. Used in event detail pages to display `starts_at`/`ends_at` in the user's local timezone (rendered client-side to avoid SSR timezone mismatch).
+
 ---
 
 ### 7.2 Auth Components
@@ -920,8 +1140,8 @@ A 2 × 2 (`h-2 w-2`) filled `rounded-full` dot with optional label.
 |---|---|---|---|
 | `LoginForm` | `components/auth/login-form.tsx` | Client | Email + password sign-in form with redirect support |
 | `RegisterForm` | `components/auth/register-form.tsx` | Client | Self-registration form — creates student account |
-
-Both forms share the same visual structure: Logo centred, heading + subtitle, bordered card containing the form, footer link to the other auth page.
+| `ForgotPasswordForm` | `components/auth/forgot-password-form.tsx` | Client | Email input form that calls `resetPasswordForEmail`; always shows "Check your email" on submit |
+| `UpdatePasswordForm` | `components/auth/update-password-form.tsx` | Client | Password + confirm fields; calls `supabase.auth.updateUser`; redirects based on role after success |
 
 ---
 
@@ -930,6 +1150,7 @@ Both forms share the same visual structure: Logo centred, heading + subtitle, bo
 | Component | File | Type | Description |
 |---|---|---|---|
 | `AppSidebar` | `components/dashboard/app-sidebar.tsx` | Client | Full application sidebar — role-filtered nav, user info, sign out |
+| `DashboardTrendChart` | `components/dashboard/dashboard-trend-chart.tsx` | Client | Bar chart (Recharts) of daily scan counts over the last 7 days; used on `/dashboard` |
 
 ---
 
@@ -963,11 +1184,39 @@ Both forms share the same visual structure: Logo centred, heading + subtitle, bo
 
 ---
 
-### 7.7 UI Primitives (shadcn/ui)
+### 7.7 Events Components
+
+| Component | File | Type | Description |
+|---|---|---|---|
+| `EventsPageClient` | `components/events/events-page-client.tsx` | Client | Staff event list with type filter tabs and search input |
+| `EventsTable` | `components/events/events-table.tsx` | Client | Table of event summaries with attendance stats |
+| `StudentEventsClient` | `components/events/student-events-client.tsx` | Client | Card grid for students — type filter, search, enrolled-only toggle, self-enroll/unenroll per card |
+| `CreateEventForm` | `components/events/create-event-form.tsx` | Client | Full event creation form — calls `POST /api/events` |
+| `EditEventForm` | `components/events/edit-event-form.tsx` | Client | Pre-populated event edit form — calls `PATCH /api/events/:id` |
+| `EventAttendanceFeed` | `components/events/event-attendance-feed.tsx` | Client | Supabase Realtime live feed of attendance_logs for a specific event |
+| `EnrollmentManager` | `components/events/enrollment-manager.tsx` | Client | Enrolled student list + searchable add-student inline UI |
+| `DeleteEventDetailsActions` | `components/events/delete-event-details-actions.tsx` | Client | Delete button that opens `DeleteEventDialog` |
+| `DeleteEventDialog` | `components/events/delete-event-dialog.tsx` | Client | Confirmation dialog — calls `DELETE /api/events/:id`, redirects to `/events` |
+
+---
+
+### 7.8 Analytics Components
+
+| Component | File | Type | Description |
+|---|---|---|---|
+| `AttendanceRateChart` | `components/analytics/attendance-rate-chart.tsx` | Client | Bar chart — `attendance_pct` for the last 10 events from `event_attendance_summary` |
+| `AttendanceTrendChart` | `components/analytics/attendance-trend-chart.tsx` | Client | Area chart — daily scan counts for the last 30 days |
+| `ExportButton` | `components/analytics/export-button.tsx` | Client | "Export" button that opens `ExportDialog` |
+| `ExportDialog` | `components/analytics/export-dialog.tsx` | Client | Dialog with event/date-range filters; calls `GET /api/export` via `window.open()` |
+
+---
+
+### 7.9 UI Primitives (shadcn/ui)
 
 All located in `app/components/ui/`. These are owned source files and are directly edited to match the theme. Key customisations:
 
 - **`button.tsx`** — exposes a `render` prop (via `@base-ui/react`) to allow `<Button render={<Link href="..." />}>` polymorphic pattern (used in Events page for Link-wrapped buttons).
+- **`chart.tsx`** — Recharts wrapper from shadcn (`ChartContainer`, `ChartTooltip`, `ChartConfig`) used by all chart components.
 - **`sidebar.tsx`** — full shadcn sidebar system; `SidebarMenuButton` also has a `render` prop for the same polymorphic Link pattern.
 - **`sonner.tsx`** — configures sonner's `Toaster` with `theme="dark"` and custom class names matching the card/border design tokens.
 
@@ -984,17 +1233,32 @@ Server Components (default — no "use client")
 └── Shared presentational components (PageHeader, StatusIndicator, Logo)
 
 Client Components ("use client")
-├── LoginForm, RegisterForm         — need useRouter, useSearchParams, form state
-├── AppSidebar                      — needs usePathname, useTransition, auth.signOut()
-├── StudentsPageClient              — local search filter + dialog state
-├── StudentsTable                   — (client for future interactivity, currently read-only)
-├── AddStudentDialog                — form state + fetch mutation
-├── TappersPageClient               — Supabase Realtime subscription + dialog state
-├── TappersTable                    — receives real-time updated props
-├── RegisterTapperDialog            — form state + fetch mutation
-├── UnregisteredScans               — Supabase Realtime + dialog trigger
-├── AssignCardDialog                — search state + fetch mutation
-└── CardsTable                      — optimistic state + fetch mutations
+├── LoginForm, RegisterForm, ForgotPasswordForm, UpdatePasswordForm  — auth state, Supabase calls
+├── AppSidebar                     — needs usePathname, useTransition, auth.signOut()
+├── DashboardTrendChart            — Recharts (browser-only)
+├── StudentsPageClient             — local search filter + dialog state
+├── StudentsTable                  — (client for future interactivity, currently read-only)
+├── AddStudentDialog               — form state + fetch mutation
+├── TappersPageClient              — Supabase Realtime subscription + dialog state
+├── TappersTable                   — receives real-time updated props
+├── RegisterTapperDialog           — form state + fetch mutation
+├── UnregisteredScans              — Supabase Realtime + dialog trigger
+├── AssignCardDialog               — search state + fetch mutation
+├── CardsTable                     — optimistic state + fetch mutations
+├── EventsPageClient               — type filter + search state
+├── EventsTable                    — (client, read-only)
+├── StudentEventsClient            — type filter + search + enrolled-only toggle + enroll/unenroll mutations
+├── CreateEventForm                — form state + fetch mutation + router.push on success
+├── EditEventForm                  — form state (pre-populated) + fetch mutation + router.push
+├── EventAttendanceFeed            — Supabase Realtime (attendance_logs INSERT filtered by event_id)
+├── EnrollmentManager              — search state + enroll/unenroll fetch mutations
+├── DeleteEventDetailsActions      — dialog open state
+├── DeleteEventDialog              — fetch mutation + router.push on success
+├── AttendanceRateChart            — Recharts (browser-only)
+├── AttendanceTrendChart           — Recharts (browser-only)
+├── ExportButton                   — dialog open state
+├── ExportDialog                   — filter state + window.open() CSV download
+└── LocalDateTime                  — client-side datetime rendering (timezone correctness)
 ```
 
 **Pattern:** Server Components fetch initial data from Supabase and pass it as props to Client Components. Client Components own their local state (pessimistic or optimistic) and interact with the API via `fetch()`.
@@ -1051,7 +1315,7 @@ All mutations are wrapped in `useTransition()` to track pending state without bl
 
 ### 9.3 Real-Time Subscriptions (Supabase Realtime)
 
-Two components subscribe to Postgres Changes via the Supabase Realtime WebSocket:
+Three components subscribe to Postgres Changes via the Supabase Realtime WebSocket:
 
 #### `UnregisteredScans` — `attendance_logs` INSERT
 
@@ -1091,7 +1355,31 @@ supabase
 
 This gives the `/tappers` page **live `is_online` / `last_seen_at` updates** as heartbeats arrive from broker.py.
 
-**Cleanup:** Both subscriptions call `supabase.removeChannel(channel)` in the `useEffect` cleanup function to prevent memory leaks on unmount.
+#### `EventAttendanceFeed` — `attendance_logs` INSERT (filtered by event)
+
+```typescript
+supabase
+  .channel(`attendance_feed_${eventId}`)
+  .on("postgres_changes", {
+    event: "INSERT",
+    schema: "public",
+    table: "attendance_logs",
+    filter: `event_id=eq.${eventId}`
+  }, async (payload) => {
+    const newLog = payload.new as LogWithProfile;
+    if (newLog.profile_id) {
+      const { data: profile } = await supabase
+        .from("profiles").select("full_name, student_id").eq("id", newLog.profile_id).single();
+      newLog.profiles = profile ?? null;
+    }
+    setLogs(prev => [newLog, ...prev]);
+  })
+  .subscribe();
+```
+
+This gives the `/events/[eventId]` detail page a **live attendance feed** as scans are recorded during the event. Uses a row-level filter so only relevant insertions are received.
+
+**Cleanup:** All three subscriptions call `supabase.removeChannel(channel)` in the `useEffect` cleanup function to prevent memory leaks on unmount.
 
 ---
 
@@ -1104,15 +1392,18 @@ The application uses **React's built-in state only** — no Redux, Zustand, or C
 | Server-fetched data | RSC props passed to Client Components | All data-bearing pages |
 | Local UI state (dialogs, filters) | `useState` | Page client components |
 | Async pending state | `useTransition` | All form submissions, sign out |
-| Realtime-updated lists | `useState` updated from Supabase channel | `TappersPageClient`, `UnregisteredScans` |
+| Realtime-updated lists | `useState` updated from Supabase channel | `TappersPageClient`, `UnregisteredScans`, `EventAttendanceFeed` |
 | Mutable non-reactive set | `useRef<Set<string>>` | `pairedSet` in `UnregisteredScans` |
 | Form state | `react-hook-form` | All mutation dialogs, auth forms |
 | Route cache | `router.refresh()` | After every successful mutation |
+| Per-row action tracking | `useState<string \| null>` (`enrollingId`, `removingId`, `pendingId`) | `EnrollmentManager`, `StudentEventsClient` |
 
 **Optimistic updates:**
 - `CardsTable` immediately updates the cards array on toggle/delete before the server confirms.
 - `StudentsPageClient` prepends the new student to the list immediately after `POST /api/students` resolves.
 - `TappersPageClient` appends and re-sorts the new tapper after `POST /api/tappers` resolves.
+- `EnrollmentManager` optimistically prepends/removes enrolled profiles on enroll/unenroll.
+- `StudentEventsClient` optimistically updates the `enrolledIds` Set on self-enroll/unenroll.
 
 ---
 
@@ -1133,8 +1424,12 @@ const { register, handleSubmit, reset, formState: { errors } } = useForm<FormVal
 |---|---|
 | `LoginForm` | `email: z.string().email()`, `password: z.string().min(6)` |
 | `RegisterForm` | `fullName: min(2)`, `email: email()`, `password: min(6)`, `confirmPassword` + `.refine()` match |
+| `ForgotPasswordForm` | `email: z.string().email()` |
+| `UpdatePasswordForm` | `password: min(6)`, `confirm: min(6)` + `.refine()` match |
 | `AddStudentDialog` | `full_name: min(2)`, `email: email()`, `password: min(6)`, `student_id: optional` |
 | `RegisterTapperDialog` | `id: regex /^[a-z0-9:.-]+$/`, `name: min(1)`, `location: optional` |
+| `CreateEventForm` | `title: min(1)`, `type: enum`, `tapper_id: min(1)`, `starts_at: min(1)`, `ends_at: min(1)`, `description: optional`, `allow_self_enrollment: boolean` + `.refine()` time ordering |
+| `EditEventForm` | Same fields as `CreateEventForm`; pre-populated via `defaultValues` |
 | `AssignCardDialog` | No schema — manual `selectedId` guard (`if (!selectedId) return`) |
 
 **Error display pattern:** Each field has an error paragraph below it:
@@ -1186,10 +1481,12 @@ Incoming request
 
 **Route classification:**
 ```typescript
-const PUBLIC_ROUTES = ["/login", "/register", "/api/scan", "/api/tappers"];
+const PUBLIC_ROUTES = ["/login", "/register", "/reset-password", "/update-password", "/api/scan", "/api/tappers"];
 const ADMIN_ROUTES  = ["/dashboard", "/students", "/tappers", "/cards",
-                       "/analytics", "/settings", "/events"];
+                       "/analytics", "/settings"];
 ```
+
+> Note: `/events` is **not** in `ADMIN_ROUTES` — students access it for their self-enrollment view. The events page server component handles role-specific rendering internally.
 
 **Login redirect loop prevention:** The `?redirect=` parameter set by the middleware is consumed by `LoginForm` to redirect back to the originally requested page after successful sign-in.
 
@@ -1375,22 +1672,15 @@ TappersTable re-renders
 
 ## 16. Stub Pages & Incomplete Features
 
-The following pages and features exist in the route tree but are not yet implemented with live data or full functionality:
+The following pages and features exist in the route tree but are not yet fully implemented:
 
 | Page / Feature | File | Status | Notes |
 |---|---|---|---|
-| `/dashboard` | `dashboard/page.tsx` | ⚠️ Stub — static `—` values | Needs live DB queries for stat cards; real activity feed; attendance trend chart |
-| `/events` | `events/page.tsx` | ⚠️ Stub — empty state only | No DB query; needs event list with CRUD, filtering, and pagination |
-| `/events/new` | `events/new/page.tsx` | ⚠️ Stub — placeholder text | Needs full event creation form: title, type, date range, tapper assignment, enrollment |
-| `/events/:id` | `events/[eventId]/page.tsx` | ⚠️ Stub — no DB query | Needs event detail, enrollment list, and live Realtime attendance feed |
-| `/events/:id/edit` | `events/[eventId]/edit/page.tsx` | ⚠️ Stub | Needs edit form pre-populated with event data |
-| `/analytics` | `analytics/page.tsx` | ⚠️ Stub — placeholder cards | Export button wired up but `GET /api/export` returns 501; chart components not yet built |
-| `/my-attendance` | `my-attendance/page.tsx` | ⚠️ Stub — static `—` values | Needs authenticated student's attendance logs, overall rate, streak calculation |
-| `/settings` | `settings/page.tsx` | ⚠️ Stub — section headers only | No forms, no persistence; three planned sections: Attendance Rules, Webhook Config, Notifications |
-| Theme toggle | — | ℹ️ Not wired | `next-themes` is installed and `ThemeProvider` is not yet added to the root layout; the app is hardcoded to dark mode via the `dark` class |
-| Password reset | — | ℹ️ Not wired | Supabase supports it; no frontend page exists |
-| Event enrollment UI | — | ℹ️ Not built | `event_enrollments` table exists; no frontend to manage enrollments |
-| Attendance log export | — | ⚠️ API stub | `GET /api/export` returns 501; no frontend download trigger implemented |
+| Settings persistence | `settings/page.tsx` | ⚠️ Read-only | Displays masked env var values; attendance rule thresholds show `—` ("Configurable in a future release") |
+| Tapper offline detection | — | ⚠️ No auto-offline | `is_online` is set to `true` on heartbeat but never automatically set to `false`. Planned: scheduled cron/TTL |
+| Notification integrations | `settings/page.tsx` | ⚠️ Not wired | Tamper alerts and offline detection notifications are shown as "Not configured" — no email/push provider integrated |
+| Theme toggle | — | ℹ️ Not wired | `next-themes` is installed but `ThemeProvider` is not in the root layout; app is hardcoded to dark mode via `dark` class |
+| Event enrollment UI from student detail | — | ℹ️ Not built | `/students/[studentId]` shows attendance history but no UI to add the student to future events |
 
 ---
 

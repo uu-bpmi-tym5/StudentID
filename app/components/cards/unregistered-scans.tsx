@@ -46,6 +46,16 @@ export function UnregisteredScans({ initial, profiles, pairedCardUids }: Props) 
           });
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "nfc_cards" },
+        (payload) => {
+          // A card was just paired (possibly from another session) — remove it from pending
+          const cardUid = (payload.new as { card_uid: string }).card_uid;
+          pairedSet.current.add(cardUid);
+          setScans((prev) => prev.filter((s) => s.card_uid !== cardUid));
+        }
+      )
       .subscribe();
 
     return () => {

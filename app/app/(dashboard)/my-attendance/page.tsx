@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/table";
 import type { Database } from "@/lib/supabase/types";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = { title: "My Attendance" };
 
 type EventType = Database["public"]["Enums"]["event_type"];

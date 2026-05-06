@@ -24,12 +24,30 @@ export function TappersPageClient({ initial }: Props) {
       .channel("tappers-status")
       .on(
         "postgres_changes",
+        { event: "INSERT", schema: "public", table: "tappers" },
+        (payload) => {
+          const inserted = payload.new as Tapper;
+          setTappers((prev) =>
+            [...prev, inserted].sort((a, b) => a.id.localeCompare(b.id))
+          );
+        }
+      )
+      .on(
+        "postgres_changes",
         { event: "UPDATE", schema: "public", table: "tappers" },
         (payload) => {
           const updated = payload.new as Tapper;
           setTappers((prev) =>
             prev.map((t) => (t.id === updated.id ? updated : t))
           );
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "tappers" },
+        (payload) => {
+          const deleted = payload.old as { id: string };
+          setTappers((prev) => prev.filter((t) => t.id !== deleted.id));
         }
       )
       .subscribe();

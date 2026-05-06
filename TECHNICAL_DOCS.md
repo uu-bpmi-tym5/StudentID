@@ -1,7 +1,7 @@
 # StudentID — Technical Documentation
 
 > **Scope:** Backend (Next.js API routes, Supabase database, authentication, middleware) and Firmware (`firmware/broker.py`).  
-> **Last updated:** April 2026
+> **Last updated:** May 2026
 
 ---
 
@@ -38,7 +38,15 @@
    - 6.8 [GET /api/tappers](#68-get-apitappers)
    - 6.9 [POST /api/tappers](#69-post-apitappers)
    - 6.10 [POST /api/tappers/\[id\]/heartbeat](#610-post-apitappersidheartbeat)
-   - 6.11 [GET /api/export *(stub)*](#611-get-apiexport-stub)
+   - 6.11 [GET /api/export](#611-get-apiexport)
+   - 6.12 [GET /api/events](#612-get-apievents)
+   - 6.13 [POST /api/events](#613-post-apievents)
+   - 6.14 [GET /api/events/[id]](#614-get-apieventsid)
+   - 6.15 [PATCH /api/events/[id]](#615-patch-apieventsid)
+   - 6.16 [DELETE /api/events/[id]](#616-delete-apieventsid)
+   - 6.17 [GET /api/events/[id]/enrollments](#617-get-apieventsid-enrollments)
+   - 6.18 [POST /api/events/[id]/enrollments](#618-post-apieventsid-enrollments)
+   - 6.19 [DELETE /api/events/[id]/enrollments/[profileId]](#619-delete-apieventsid-enrollmentsprofileid)
 7. [Authentication & Session Management](#7-authentication--session-management)
    - 7.1 [Supabase Auth](#71-supabase-auth)
    - 7.2 [Next.js Middleware](#72-nextjs-middleware)
@@ -336,11 +344,13 @@ A time-bounded attendance session assigned to a specific tapper device. Only sca
 | `starts_at` | `timestamptz` | NOT NULL | Event start time |
 | `ends_at` | `timestamptz` | NOT NULL | Event end time |
 | `is_active` | `boolean` | NOT NULL, DEFAULT `true` | Can be used to manually disable without deleting |
+| `allow_self_enrollment` | `boolean` | NOT NULL, DEFAULT `false` | When `true`, students may enroll/unenroll themselves via the Events page |
 | `created_at` | `timestamptz` | NOT NULL, DEFAULT `now()` | Row creation timestamp |
 
 **Constraint:** `ends_at > starts_at` (checked at DB level).
 
 > A tapper can have multiple overlapping events. The `/api/scan` route matches the **first** `is_active = true` event for the tapper whose time window contains the scan timestamp (using `.single()` — returns one row or null).
+> The `POST /api/events` and `PATCH /api/events/[id]` routes also check for time-window conflicts on the same tapper and return `409` if one is found.
 
 ---
 
@@ -585,7 +595,7 @@ createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 ```
 
 - Uses the **service role key** — bypasses all RLS policies.
-- Used by: `/api/scan` (attendance insert), `/api/tappers/[id]/heartbeat`, all admin CRUD routes (`/api/cards`, `/api/students`, `/api/tappers`).
+- Used by: `/api/scan` (attendance insert), `/api/tappers/[id]/heartbeat`, and admin CRUD routes (`/api/cards`, `/api/students`, `/api/tappers`).
 - **Never expose the service role key to the browser.**
 
 ### `createClient()` (server) — `lib/supabase/server.ts`
@@ -597,7 +607,7 @@ createServerClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
 ```
 
 - Uses the **anon key** — RLS fully enforced.
-- Used by: `requireAdmin()` helper inside API routes (verifies session and role before granting access), and `middleware.ts` (session refresh + role check).
+- Used by: all event routes and the `requireStaff()` helper; `middleware.ts` (session refresh + role check); `requireAdmin()` helper inside card, student, and tapper routes.
 - Calls `supabase.auth.getUser()` on every request to validate the JWT.
 
 ### `createClient()` (browser) — `lib/supabase/client.ts`
@@ -607,7 +617,17 @@ createBrowserClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY)
 ```
 
 - Uses the **anon key** — RLS fully enforced.
-- Used by: Client Components that need direct Supabase access (e.g., Realtime subscriptions on attendance pages).
+- Used by: Client Components that need direct Supabase access (Realtime subscriptions on attendance pages, the `ForgotPasswordForm`, and `UpdatePasswordForm`).
+
+### Auth Helpers — `lib/supabase/auth.ts`
+
+Two shared helpers used across API route handlers:
+
+#### `requireAdmin() → User | null`
+Validates the session cookie and returns the user only if `profiles.role = 'admin'`. Otherwise returns `null`. Used by routes that require admin-only access (`/api/cards`, `/api/students`, `/api/tappers`).
+
+#### `requireStaff() → { user: User, role: UserRole } | null`
+Validates the session cookie and returns the user + role only if `profiles.role IN ('admin', 'teacher')`. Otherwise returns `null`. Used by routes accessible to all staff (`/api/events`, `/api/export`).
 
 ---
 
@@ -839,12 +859,160 @@ Updates `is_online = true` and `last_seen_at = now()` for the specified tapper.
 
 ---
 
-### 6.11 `GET /api/export` *(stub)*
+### 6.11 `GET /api/export`
 
 **File:** `app/app/api/export/route.ts`  
-**Status:** ⚠️ Not implemented — returns `501`
+**Auth:** Authenticated staff session (`requireStaff()` — admin or teacher)  
+**Caller:** `ExportDialog` component on the analytics page
 
-Planned to export attendance data as CSV or PDF. See [Section 10](#10-known-limitations--stubs) for planned query parameters.
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `event_id` | string (UUID) | No | Filter to a single event |
+| `from` | string (ISO date) | No | Start of date range (`scanned_at >= from`) |
+| `to` | string (ISO date) | No | End of date range (`scanned_at <= to`) |
+
+All parameters are optional. Omitting all returns the full attendance log.
+
+#### Response
+
+Returns a CSV file with `Content-Disposition: attachment; filename="attendance-export.csv"`.
+
+**Columns:** `scanned_at`, `student_name`, `student_id`, `card_uid`, `tapper_id`, `event_title`
+
+**Status codes:** `403` (not staff), `500` (DB error)
+
+---
+
+### 6.12 `GET /api/events`
+
+**File:** `app/app/api/events/route.ts`  
+**Auth:** Authenticated staff session (`requireStaff()`)  
+**Supabase client:** Server (anon key, RLS enforced)
+
+Returns all rows from `event_attendance_summary` view ordered by `starts_at DESC`.
+
+---
+
+### 6.13 `POST /api/events`
+
+**File:** `app/app/api/events/route.ts`  
+**Auth:** Authenticated staff session (`requireStaff()`)  
+**Supabase client:** Server (anon key, RLS enforced)
+
+Creates a new event. Sets `created_by` to the authenticated user's ID.
+
+#### Request
+
+```json
+{
+  "title": "CS101 Midterm",
+  "type": "exam",
+  "tapper_id": "tapper-001",
+  "starts_at": "2026-05-10T09:00:00.000Z",
+  "ends_at": "2026-05-10T11:00:00.000Z",
+  "description": "Optional notes",
+  "allow_self_enrollment": false
+}
+```
+
+**Validation (Zod):**
+- `title`: non-empty string
+- `type`: `"exam" | "lecture" | "lab" | "other"`
+- `tapper_id`: non-empty string
+- `starts_at` / `ends_at`: ISO datetime strings; `ends_at > starts_at` validated server-side
+- `description`: optional string
+- `allow_self_enrollment`: optional boolean (defaults to `false`)
+
+**Conflict detection:** Checks `events` for any existing active event on the same tapper whose time window overlaps. Returns `409` if found.
+
+**Response:** The newly created `events` row. HTTP `201`.
+
+---
+
+### 6.14 `GET /api/events/[id]`
+
+**File:** `app/app/api/events/[id]/route.ts`  
+**Auth:** Authenticated staff session (`requireStaff()`)  
+**Supabase client:** Server
+
+Returns the event row (with joined tapper and creator profile), all enrollments (with profile details), and the last 50 attendance logs (with profile names).
+
+**Response:**
+```json
+{
+  "event": { "...event fields...", "tappers": {...}, "profiles": {...} },
+  "enrollments": [...],
+  "logs": [...]
+}
+```
+
+**Error codes:** `403` (not staff), `404` (event not found)
+
+---
+
+### 6.15 `PATCH /api/events/[id]`
+
+**File:** `app/app/api/events/[id]/route.ts`  
+**Auth:** Authenticated staff session. Only the event's creator or an admin may update.  
+**Supabase client:** Server
+
+Partial update of event fields. Validates `ends_at > starts_at` and checks for tapper time-window conflicts, excluding the event being updated.
+
+**Patchable fields:** `title`, `type`, `tapper_id`, `starts_at`, `ends_at`, `description`, `is_active`, `allow_self_enrollment`
+
+**Error codes:** `403` (not staff or not owner/admin), `404` (not found), `409` (tapper time conflict)
+
+---
+
+### 6.16 `DELETE /api/events/[id]`
+
+**File:** `app/app/api/events/[id]/route.ts`  
+**Auth:** Authenticated staff session. Only the event's creator or an admin may delete.  
+**Supabase client:** Server
+
+Permanently deletes the event (cascades to `event_enrollments`; `attendance_logs.event_id` is set to NULL via FK ON DELETE SET NULL).
+
+**Response:** `204 No Content`
+
+---
+
+### 6.17 `GET /api/events/[id]/enrollments`
+
+**File:** `app/app/api/events/[id]/enrollments/route.ts`  
+**Auth:** Authenticated staff session (`requireStaff()`)  
+**Supabase client:** Server
+
+Returns all enrolled profiles for the event with nested `profiles(id, full_name, email, student_id)`.
+
+---
+
+### 6.18 `POST /api/events/[id]/enrollments`
+
+**File:** `app/app/api/events/[id]/enrollments/route.ts`  
+**Auth:** Any authenticated user.  
+**Supabase client:** Server
+
+**Body:** `{ "profile_id": "<uuid>" }`
+
+- **Staff** may enroll any student.
+- **Students** may only enroll themselves (`profile_id === user.id`) and only if `event.allow_self_enrollment = true`.
+
+Returns `409` if the student is already enrolled. Returns `201` with the new enrollment row on success.
+
+---
+
+### 6.19 `DELETE /api/events/[id]/enrollments/[profileId]`
+
+**File:** `app/app/api/events/[id]/enrollments/[profileId]/route.ts`  
+**Auth:** Any authenticated user.  
+**Supabase client:** Server
+
+- **Staff** may remove any student.
+- **Students** may only remove themselves from events where `allow_self_enrollment = true`.
+
+**Response:** `204 No Content`
 
 ---
 
@@ -869,12 +1037,11 @@ The middleware runs on all routes except `_next/static`, `_next/image`, `favicon
 #### Route Classification
 
 ```typescript
-const PUBLIC_ROUTES = ["/login", "/register", "/api/scan", "/api/tappers"];
-const ADMIN_ROUTES  = ["/dashboard", "/students", "/tappers", "/cards",
-                       "/analytics", "/settings", "/events"];
+const PUBLIC_ROUTES = ["/login", "/register", "/reset-password", "/update-password", "/api/scan", "/api/tappers"];
+const ADMIN_ROUTES  = ["/dashboard", "/students", "/tappers", "/cards", "/analytics", "/settings"];
 ```
 
-> Note: `/api/tappers` (GET and POST) is in `PUBLIC_ROUTES` — it relies on the `requireAdmin()` function inside the route handler itself for access control.
+> Note: `/events` is **not** in `ADMIN_ROUTES` — students can access it to browse self-enrollable events and view their enrolled sessions. `/api/tappers` is in `PUBLIC_ROUTES` but relies on `requireAdmin()` inside the route handler for write access.
 
 #### Middleware Logic
 
@@ -1061,15 +1228,13 @@ Request
 
 | Area | Status | Notes |
 |------|--------|-------|
-| `GET /api/export` | ⚠️ Stub — returns `501` | Planned: CSV/PDF export with `event_id`, date range, format query params |
 | Tapper offline detection | ⚠️ No auto-offline | `is_online` is set to `true` on heartbeat but never automatically set to `false`. Requires a scheduled cron job or Supabase Edge Function to mark tappers offline after a TTL. |
 | MQTT authentication | ⚠️ No broker auth | The MQTT broker accepts unauthenticated connections. Production deployment should add username/password or TLS client certificates to `BROKER_CONFIG`. |
 | MQTT TLS | ⚠️ Plain TCP | No TLS on port 1883. In production, use TLS (port 8883) or a VPN. |
-| Multiple concurrent events per tapper | ⚠️ Undefined behaviour | If a tapper has two overlapping `is_active = true` events, `/api/scan` uses `.single()` which throws on multiple rows — the scan would fail to log an event. |
+| Multiple concurrent events per tapper | ⚠️ Undefined behaviour | If a tapper has two overlapping `is_active = true` events, `/api/scan` uses `.single()` which throws on multiple rows — the scan would fail to log an event. The `POST /api/events` and `PATCH /api/events/[id]` routes now prevent overlapping events from being created, but existing data may still cause this. |
 | Student self-registration | ℹ️ Open signup | `/register` creates a `student`-role account with no invite required. This should be restricted for production (disable `enable_signup` in `supabase/config.toml` or add invite flow). |
-| Realtime feed | ℹ️ Frontend only | Supabase Realtime is consumed only in frontend Client Components (card pairing feed, live attendance). The backend API does not use Realtime. |
-| Export route auth | ⚠️ TODO comment in code | `GET /api/export` has a TODO to enforce authentication and accept query parameters before implementation. |
-| Password reset / magic link | ℹ️ Not wired | Supabase Auth supports magic links and password reset emails, but no pages/endpoints handle these flows in the current frontend. |
+| Settings persistence | ⚠️ Read-only | The `/settings` page displays masked env var values (webhook secret, app URL, MQTT port) but does not allow editing them through the UI. Attendance rule thresholds are planned for a future release. |
+| Notification integrations | ⚠️ Not implemented | Tamper alerts and offline detection notifications are shown in `/settings` but not wired to any email or push provider. |
 
 ---
 

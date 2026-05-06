@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -36,6 +36,11 @@ export function CardsTable({ initial }: Props) {
   const [cards, setCards] = useState<PairedCard[]>(initial);
   const [pendingId, startTransition] = useTransition();
   void pendingId;
+
+  // Sync state when the RSC re-renders with fresh data (e.g. after router.refresh())
+  useEffect(() => {
+    setCards(initial);
+  }, [initial]);
 
   function handleDelete(id: string, cardUid: string) {
     startTransition(async () => {
