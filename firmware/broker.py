@@ -132,7 +132,11 @@ async def run_listener():
     while True:
         try:
             try:
-                message = await asyncio.wait_for(client.deliver_message(), timeout=TIMEOUT_SECONDS)
+                # Use amqtt's built-in timeout: asyncio.wait_for cancels the outer
+                # deliver_message() coroutine before it can clean up its inner
+                # deliver_task, leaving an orphan that steals the next message
+                # from the queue.
+                message = await client.deliver_message(timeout_duration=TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
                 consecutive_timeouts += 1
                 print(f"Waiting for message... ({consecutive_timeouts}/{RECONNECT_AFTER_TIMEOUTS})")
@@ -142,6 +146,10 @@ async def run_listener():
                     client = await _build_listener()
                     consecutive_timeouts = 0
                 continue
+
+            if message is None:
+                # amqtt returns None when the handler is detached mid-await; rebuild.
+                raise RuntimeError("deliver_message returned None")
 
             consecutive_timeouts = 0
             payload_bytes = message.publish_packet.payload.data
