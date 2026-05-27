@@ -223,14 +223,6 @@ export function StudentEventsClient({
                     </p>
                   )}
 
-                  {/* Tapper */}
-                  <p className="text-xs text-muted-foreground">
-                    Tapper:{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 font-mono">
-                      {event.tapper_id}
-                    </code>
-                  </p>
-
                   {/* Enrollment count */}
                   <p className="text-xs text-muted-foreground">
                     {event.enrolled_count ?? 0} enrolled

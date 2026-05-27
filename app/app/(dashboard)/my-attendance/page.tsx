@@ -44,7 +44,7 @@ export default async function MyAttendancePage() {
   const [{ data: logs }, { data: enrollments }] = await Promise.all([
     supabase
       .from("attendance_logs")
-      .select("*, events(id, title, type, starts_at)")
+      .select("*, events(id, title, type, starts_at), tappers(id, name)")
       .eq("profile_id", profileId)
       .order("scanned_at", { ascending: false }),
     supabase
@@ -155,6 +155,9 @@ export default async function MyAttendancePage() {
                   const event = Array.isArray(log.events)
                     ? log.events[0]
                     : log.events;
+                  const tapper = Array.isArray(log.tappers)
+                    ? log.tappers[0]
+                    : log.tappers;
                   return (
                     <TableRow key={log.id}>
                       <TableCell>
@@ -189,9 +192,13 @@ export default async function MyAttendancePage() {
                         {format(new Date(log.scanned_at), "dd MMM yyyy · HH:mm")}
                       </TableCell>
                       <TableCell>
-                        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-                          {log.tapper_id}
-                        </code>
+                        {tapper?.name ? (
+                          <span className="text-sm">{tapper.name}</span>
+                        ) : (
+                          <span className="text-muted-foreground italic text-sm">
+                            Unknown
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
