@@ -44,7 +44,7 @@ export default async function MyAttendancePage() {
   const [{ data: logs }, { data: enrollments }] = await Promise.all([
     supabase
       .from("attendance_logs")
-      .select("*, events(id, title, type, starts_at), tappers(id, name)")
+      .select("*, events(id, title, type, starts_at)")
       .eq("profile_id", profileId)
       .order("scanned_at", { ascending: false }),
     supabase
@@ -146,7 +146,6 @@ export default async function MyAttendancePage() {
                 <TableRow>
                   <TableHead>Event</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Tapper</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -155,9 +154,6 @@ export default async function MyAttendancePage() {
                   const event = Array.isArray(log.events)
                     ? log.events[0]
                     : log.events;
-                  const tapper = Array.isArray(log.tappers)
-                    ? log.tappers[0]
-                    : log.tappers;
                   return (
                     <TableRow key={log.id}>
                       <TableCell>
@@ -190,15 +186,6 @@ export default async function MyAttendancePage() {
                       </TableCell>
                       <TableCell className="tabular-nums text-sm text-muted-foreground whitespace-nowrap">
                         {format(new Date(log.scanned_at), "dd MMM yyyy · HH:mm")}
-                      </TableCell>
-                      <TableCell>
-                        {tapper?.name ? (
-                          <span className="text-sm">{tapper.name}</span>
-                        ) : (
-                          <span className="text-muted-foreground italic text-sm">
-                            Unknown
-                          </span>
-                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
