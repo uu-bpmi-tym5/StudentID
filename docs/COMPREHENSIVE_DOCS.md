@@ -960,8 +960,24 @@ Event detail page showing:
 
 **Access:** Admin, Teacher
 
-- `/students` — `StudentsPageClient` with search filter. `AddStudentDialog` for admin-created accounts.
-- `/students/[id]` — Individual student record: profile info, NFC cards assigned, attendance history.
+- `/students` — `StudentsPageClient` with search filter. `AddStudentDialog` for admin-created accounts. Each row in the table is clickable and links to the student's detail page.
+- `/students/[id]` — Full student detail page giving admins and teachers the same attendance visibility the student themselves has via `/my-attendance`. Renders:
+  - **← Students** back-navigation button.
+  - `PageHeader` with the student's name, email and student ID (if set).
+  - **3 stat cards** (same logic as `/my-attendance`):
+    - *Overall Rate* — `attended / enrolled × 100%`, with sub-text showing the raw counts.
+    - *Events Attended* — distinct events with at least one resolved scan, plus total scan count.
+    - *Current Streak* — consecutive enrolled events attended from the most recent backwards.
+  - **Profile sidebar** (left column) — avatar initial, full name, email, student ID badge, role badge, join date, and all assigned NFC cards with active/inactive status.
+  - **Attendance History table** (right column, full history — no cap) — columns: *Event* (clickable title + type badge), *Date*, *Tapper*, *Status* (green "Present" badge). Mirrors the columns of the student's own `/my-attendance` view exactly.
+
+  All data is fetched server-side in four parallel Supabase queries:
+  1. `profiles` — profile row.
+  2. `nfc_cards` — all cards for the student.
+  3. `attendance_logs` joined with `events(id, title, type, starts_at)` — full history, ordered by `scanned_at DESC`.
+  4. `event_enrollments` joined with `events(id, starts_at)` — for stat computation.
+
+  No backend changes are required; the existing RLS policies (`attendance_logs_select` and `enrollments_select`) already permit `admin` and `teacher` roles to read all rows.
 
 ### 11.6 /tappers and /tappers/[id]
 
